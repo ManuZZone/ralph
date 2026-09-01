@@ -1,11 +1,10 @@
 #!/bin/bash
-# Ralph Wiggum - Long-running AI agent loop
-# Usage: ./ralph.sh [--tool amp|claude] [max_iterations]
+# Ralph Wiggum - long-running AI coding-agent loop
+# Usage: ./ralph.sh [--tool amp|claude|omp] [max_iterations]
 
-set -e
+set -euo pipefail
 
-# Parse arguments
-TOOL="amp"  # Default to amp for backwards compatibility
+TOOL="amp"
 MAX_ITERATIONS=10
 
 while [[ $# -gt 0 ]]; do
@@ -19,7 +18,6 @@ while [[ $# -gt 0 ]]; do
       shift
       ;;
     *)
-      # Assume it's max_iterations if it's a number
       if [[ "$1" =~ ^[0-9]+$ ]]; then
         MAX_ITERATIONS="$1"
       fi
@@ -28,86 +26,116 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-# Validate tool choice
-if [[ "$TOOL" != "amp" && "$TOOL" != "claude" ]]; then
-  echo "Error: Invalid tool '$TOOL'. Must be 'amp' or 'claude'."
+if [[ "$TOOL" != "amp" && "$TOOL" != "claude" && "$TOOL" != "omp" ]]; then
+  echo "Error: invalid tool '$TOOL'. Must be amp, claude, or omp."
   exit 1
 fi
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_DIR="${RALPH_PROJECT_DIR:-$PWD}"
 PRD_FILE="$SCRIPT_DIR/prd.json"
 PROGRESS_FILE="$SCRIPT_DIR/progress.txt"
 ARCHIVE_DIR="$SCRIPT_DIR/archive"
 LAST_BRANCH_FILE="$SCRIPT_DIR/.last-branch"
+STATE_DIR="$SCRIPT_DIR/state"
+STATE_FILE="$STATE_DIR/iterations.jsonl"
+LOCK_DIR="$SCRIPT_DIR/.ralph.lock"
 
-# Archive previous run if branch changed
-if [ -f "$PRD_FILE" ] && [ -f "$LAST_BRANCH_FILE" ]; then
-  CURRENT_BRANCH=$(jq -r '.branchName // empty' "$PRD_FILE" 2>/dev/null || echo "")
-  LAST_BRANCH=$(cat "$LAST_BRANCH_FILE" 2>/dev/null || echo "")
-  
-  if [ -n "$CURRENT_BRANCH" ] && [ -n "$LAST_BRANCH" ] && [ "$CURRENT_BRANCH" != "$LAST_BRANCH" ]; then
-    # Archive the previous run
+if [[ ! -f "$PRD_FILE" ]]; then
+  echo "Error: missing $PRD_FILE"
+  exit 1
+fi
+if [[ ! -d "$PROJECT_DIR/.git" ]]; then
+  echo "Error: RALPH_PROJECT_DIR must point to a git repository."
+  exit 1
+fi
+if ! command -v jq >/dev/null 2>&1; then
+  echo "Error: jq is required."
+  exit 1
+fi
+if [[ "$TOOL" == "omp" ]] && ! command -v omp >/dev/null 2>&1; then
+  echo "Error: omp is required for --tool omp."
+  exit 1
+fi
+if ! mkdir "$LOCK_DIR" 2>/dev/null; then
+  echo "Error: Ralph is already running ($LOCK_DIR exists)."
+  exit 1
+fi
+trap 'rmdir "$LOCK_DIR"' EXIT INT TERM
+mkdir -p "$ARCHIVE_DIR" "$STATE_DIR"
+
+all_stories_pass() {
+  jq -e '(.userStories | length > 0) and all(.userStories[]; .passes == true)' "$PRD_FILE" >/dev/null
+}
+
+if [[ -f "$LAST_BRANCH_FILE" ]]; then
+  CURRENT_BRANCH=$(jq -r '.branchName // empty' "$PRD_FILE" 2>/dev/null || true)
+  LAST_BRANCH=$(cat "$LAST_BRANCH_FILE" 2>/dev/null || true)
+  if [[ -n "$CURRENT_BRANCH" && -n "$LAST_BRANCH" && "$CURRENT_BRANCH" != "$LAST_BRANCH" ]]; then
     DATE=$(date +%Y-%m-%d)
-    # Strip "ralph/" prefix from branch name for folder
     FOLDER_NAME=$(echo "$LAST_BRANCH" | sed 's|^ralph/||')
     ARCHIVE_FOLDER="$ARCHIVE_DIR/$DATE-$FOLDER_NAME"
-    
-    echo "Archiving previous run: $LAST_BRANCH"
     mkdir -p "$ARCHIVE_FOLDER"
-    [ -f "$PRD_FILE" ] && cp "$PRD_FILE" "$ARCHIVE_FOLDER/"
-    [ -f "$PROGRESS_FILE" ] && cp "$PROGRESS_FILE" "$ARCHIVE_FOLDER/"
-    echo "   Archived to: $ARCHIVE_FOLDER"
-    
-    # Reset progress file for new run
-    echo "# Ralph Progress Log" > "$PROGRESS_FILE"
-    echo "Started: $(date)" >> "$PROGRESS_FILE"
-    echo "---" >> "$PROGRESS_FILE"
+    cp "$PRD_FILE" "$ARCHIVE_FOLDER/"
+    [[ -f "$PROGRESS_FILE" ]] && cp "$PROGRESS_FILE" "$ARCHIVE_FOLDER/"
+    printf '# Ralph Progress Log\nStarted: %s\n---\n' "$(date -Iseconds)" > "$PROGRESS_FILE"
   fi
 fi
 
-# Track current branch
-if [ -f "$PRD_FILE" ]; then
-  CURRENT_BRANCH=$(jq -r '.branchName // empty' "$PRD_FILE" 2>/dev/null || echo "")
-  if [ -n "$CURRENT_BRANCH" ]; then
-    echo "$CURRENT_BRANCH" > "$LAST_BRANCH_FILE"
-  fi
+CURRENT_BRANCH=$(jq -r '.branchName // empty' "$PRD_FILE" 2>/dev/null || true)
+[[ -n "$CURRENT_BRANCH" ]] && printf '%s\n' "$CURRENT_BRANCH" > "$LAST_BRANCH_FILE"
+[[ -f "$PROGRESS_FILE" ]] || printf '# Ralph Progress Log\nStarted: %s\n---\n' "$(date -Iseconds)" > "$PROGRESS_FILE"
+
+if all_stories_pass; then
+  echo "Ralph already complete."
+  exit 0
 fi
 
-# Initialize progress file if it doesn't exist
-if [ ! -f "$PROGRESS_FILE" ]; then
-  echo "# Ralph Progress Log" > "$PROGRESS_FILE"
-  echo "Started: $(date)" >> "$PROGRESS_FILE"
-  echo "---" >> "$PROGRESS_FILE"
-fi
+run_iteration() {
+  case "$TOOL" in
+    amp)
+      cat "$SCRIPT_DIR/prompt.md" | amp --dangerously-allow-all 2>&1 | tee /dev/stderr || true
+      ;;
+    claude)
+      claude --dangerously-skip-permissions --print < "$SCRIPT_DIR/CLAUDE.md" 2>&1 | tee /dev/stderr || true
+      ;;
+    omp)
+      omp --cwd "$PROJECT_DIR" --no-session --approval-mode yolo -p "$(cat "$SCRIPT_DIR/OMP.md")" 2>&1 | tee /dev/stderr || true
+      ;;
+  esac
+}
 
-echo "Starting Ralph - Tool: $TOOL - Max iterations: $MAX_ITERATIONS"
+next_story_id() {
+  jq -r '[.userStories[] | select(.passes == false)] | sort_by(.priority) | .[0].id // empty' "$PRD_FILE"
+}
 
-for i in $(seq 1 $MAX_ITERATIONS); do
-  echo ""
-  echo "==============================================================="
-  echo "  Ralph Iteration $i of $MAX_ITERATIONS ($TOOL)"
-  echo "==============================================================="
+printf 'Starting Ralph — tool: %s, project: %s, max iterations: %s\n' "$TOOL" "$PROJECT_DIR" "$MAX_ITERATIONS"
+for i in $(seq 1 "$MAX_ITERATIONS"); do
+  printf '\n===============================================================\n'
+  printf '  Ralph iteration %s of %s (%s)\n' "$i" "$MAX_ITERATIONS" "$TOOL"
+  printf '===============================================================\n'
 
-  # Run the selected tool with the ralph prompt
-  if [[ "$TOOL" == "amp" ]]; then
-    OUTPUT=$(cat "$SCRIPT_DIR/prompt.md" | amp --dangerously-allow-all 2>&1 | tee /dev/stderr) || true
-  else
-    # Claude Code: use --dangerously-skip-permissions for autonomous operation, --print for output
-    OUTPUT=$(claude --dangerously-skip-permissions --print < "$SCRIPT_DIR/CLAUDE.md" 2>&1 | tee /dev/stderr) || true
-  fi
-  
-  # Check for completion signal
-  if echo "$OUTPUT" | grep -q "<promise>COMPLETE</promise>"; then
-    echo ""
-    echo "Ralph completed all tasks!"
-    echo "Completed at iteration $i of $MAX_ITERATIONS"
+  STORY_ID_BEFORE=$(next_story_id)
+  OUTPUT=$(run_iteration)
+  if all_stories_pass; then
+    jq -nc --arg timestamp "$(date -Iseconds)" --arg story_id "$STORY_ID_BEFORE" \
+      '{timestamp: $timestamp, story_id: $story_id, status: "complete"}' >> "$STATE_FILE"
+    printf '\nRalph completed all tasks at iteration %s.\n' "$i"
     exit 0
   fi
-  
-  echo "Iteration $i complete. Continuing..."
+  STORY_ID_AFTER=$(next_story_id)
+  STATUS="blocked"
+  if [[ -n "$STORY_ID_BEFORE" && "$STORY_ID_BEFORE" != "$STORY_ID_AFTER" ]]; then
+    STATUS="completed"
+  fi
+  jq -nc --arg timestamp "$(date -Iseconds)" --arg story_id "$STORY_ID_BEFORE" \
+    --arg status "$STATUS" '{timestamp: $timestamp, story_id: $story_id, status: $status}' >> "$STATE_FILE"
+  if echo "$OUTPUT" | grep -q '<promise>COMPLETE</promise>'; then
+    echo "Warning: agent reported completion, but prd.json still has incomplete stories."
+  fi
+  printf 'Iteration %s complete. Continuing...\n' "$i"
   sleep 2
 done
 
-echo ""
 echo "Ralph reached max iterations ($MAX_ITERATIONS) without completing all tasks."
-echo "Check $PROGRESS_FILE for status."
 exit 1

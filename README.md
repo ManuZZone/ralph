@@ -27,11 +27,12 @@ Copy the ralph files into your project:
 mkdir -p scripts/ralph
 cp /path/to/ralph/ralph.sh scripts/ralph/
 
-# Copy the prompt template for your AI tool of choice:
+## Copy the prompt template for your AI tool of choice:
 cp /path/to/ralph/prompt.md scripts/ralph/prompt.md    # For Amp
 # OR
 cp /path/to/ralph/CLAUDE.md scripts/ralph/CLAUDE.md    # For Claude Code
-
+# OR
+cp /path/to/ralph/OMP.md scripts/ralph/OMP.md          # For Oh My Pi
 chmod +x scripts/ralph/ralph.sh
 ```
 
@@ -115,27 +116,39 @@ This creates `prd.json` with user stories structured for autonomous execution.
 
 # Using Claude Code
 ./scripts/ralph/ralph.sh --tool claude [max_iterations]
+
+# Using Oh My Pi
+RALPH_PROJECT_DIR=/path/to/your/project ./scripts/ralph/ralph.sh --tool omp [max_iterations]
 ```
 
-Default is 10 iterations. Use `--tool amp` or `--tool claude` to select your AI coding tool.
+Default is 10 iterations. Use `--tool amp`, `--tool claude`, or `--tool omp` to select your AI coding tool.
 
-Ralph will:
-1. Create a feature branch (from PRD `branchName`)
-2. Pick the highest priority story where `passes: false`
-3. Implement that single story
-4. Run quality checks (typecheck, tests)
-5. Commit if checks pass
-6. Update `prd.json` to mark story as `passes: true`
-7. Append learnings to `progress.txt`
-8. Repeat until all stories pass or max iterations reached
+Amp and Claude Code runs follow the upstream branch/commit behavior. The OMP backend instead:
+
+1. Picks the highest priority story where `passes: false`
+2. Implements exactly that story
+3. Runs the story’s specific verification
+4. Updates `prd.json` only after verification passes
+5. Appends learnings to `progress.txt`
+6. Records iteration state in `state/iterations.jsonl`
+7. Repeats until all stories pass or max iterations is reached
+
+### Oh My Pi backend
+
+The `omp` backend runs a fresh non-interactive Oh My Pi session for each iteration. It requires `omp` and `jq` on `PATH`.
+
+`RALPH_PROJECT_DIR` selects the git repository to modify; it defaults to the launch directory. Unlike the upstream Amp and Claude prompts, `OMP.md` does not create branches or commits and does not automatically edit `AGENTS.md`. `prd.json` is the completion source of truth.
+
+
 
 ## Key Files
 
 | File | Purpose |
 |------|---------|
-| `ralph.sh` | The bash loop that spawns fresh AI instances (supports `--tool amp` or `--tool claude`) |
+| `ralph.sh` | The bash loop that spawns fresh AI instances (supports `--tool amp`, `--tool claude`, or `--tool omp`) |
 | `prompt.md` | Prompt template for Amp |
 | `CLAUDE.md` | Prompt template for Claude Code |
+| `OMP.md` | Prompt template for Oh My Pi |
 | `prd.json` | User stories with `passes` status (the task list) |
 | `prd.json.example` | Example PRD format for reference |
 | `progress.txt` | Append-only learnings for future iterations |
