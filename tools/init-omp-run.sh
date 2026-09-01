@@ -7,12 +7,13 @@ PROJECT_DIR=""
 TASK=""
 MAX_ITERATIONS=10
 PLAN_TIMEOUT_SECONDS=180
+MAX_STORIES=5
 DRY_RUN=false
 
 usage() {
   cat <<'EOF'
 Usage:
-  ./tools/init-omp-run.sh --project /path/to/repo --task "what to do" [--iterations N] [--plan-timeout seconds] [--dry-run]
+  ./tools/init-omp-run.sh --project /path/to/repo --task "what to do" [--iterations N] [--plan-timeout seconds] [--max-stories N] [--dry-run]
 
 Creates an isolated run under runs/ and asks OMP to write its prd.json.
 The target repository is not modified during initialization. Run the printed
@@ -36,6 +37,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --plan-timeout)
       PLAN_TIMEOUT_SECONDS="$2"
+      shift 2
+      ;;
+    --max-stories)
+      MAX_STORIES="$2"
       shift 2
       ;;
     --dry-run)
@@ -67,6 +72,10 @@ if [[ ! "$PLAN_TIMEOUT_SECONDS" =~ ^[1-9][0-9]*$ ]]; then
   echo "Error: --plan-timeout must be a positive integer." >&2
   exit 1
 fi
+if [[ ! "$MAX_STORIES" =~ ^[1-9][0-9]*$ ]]; then
+  echo "Error: --max-stories must be a positive integer." >&2
+  exit 1
+fi
 
 if ! command -v jq >/dev/null 2>&1; then
   echo "Error: jq is required." >&2
@@ -89,7 +98,7 @@ SLUG="$(printf '%s' "$TASK" | tr '[:upper:]' '[:lower:]' | tr -cs 'a-z0-9' '-' |
 RUN_DIR="$SCRIPT_DIR/runs/$(date +%Y%m%d-%H%M%S)-$SLUG"
 
 if [[ "$DRY_RUN" == true ]]; then
-  printf 'project=%s\nrun_dir=%s\niterations=%s\ntask=%s\n' "$PROJECT_DIR" "$RUN_DIR" "$MAX_ITERATIONS" "$TASK"
+  printf 'project=%s\nrun_dir=%s\niterations=%s\nmax_stories=%s\ntask=%s\n' "$PROJECT_DIR" "$RUN_DIR" "$MAX_ITERATIONS" "$MAX_STORIES" "$TASK"
   exit 0
 fi
 
@@ -111,7 +120,7 @@ Create exactly one valid JSON file at $RUN_DIR/prd.json using the Ralph schema:
 - branchName: ralph/<short-kebab-feature-name>
 - description: concise summary of the task request
 - userStories: ordered, small, independently verifiable stories
-- create at most 5 user stories
+- create at most $MAX_STORIES user stories
 - each story has id, title, description, acceptanceCriteria, priority, passes=false, notes=""
 - priority is a JSON integer: 1 for the first story, then 2, 3, and so on. Never use words such as "high".
 
@@ -120,7 +129,7 @@ EOF
 )
 
 omp --cwd "$PROJECT_DIR" --no-session --approval-mode yolo --max-time "$PLAN_TIMEOUT_SECONDS" -p "$BOOTSTRAP_PROMPT"
-if ! jq -e '(.project | type == "string") and (.branchName | type == "string") and (.description | type == "string") and (.userStories | type == "array" and length > 0 and length <= 5) and all(.userStories[]; (.id | type == "string") and (.title | type == "string") and (.description | type == "string") and (.acceptanceCriteria | type == "array" and length > 0 and all(.[]; type == "string")) and (.priority | type == "number" and floor == . and . > 0) and (.passes | type == "boolean" and . == false) and (.notes | type == "string"))' "$RUN_DIR/prd.json" >/dev/null; then
+if ! jq -e '(.project | type == "string") and (.branchName | type == "string") and (.description | type == "string") and (.userStories | type == "array" and length > 0 and length <= '"$MAX_STORIES"') and all(.userStories[]; (.id | type == "string") and (.title | type == "string") and (.description | type == "string") and (.acceptanceCriteria | type == "array" and length > 0 and all(.[]; type == "string")) and (.priority | type == "number" and floor == . and . > 0) and (.passes | type == "boolean" and . == false) and (.notes | type == "string"))' "$RUN_DIR/prd.json" >/dev/null; then
   echo "Error: OMP did not create a valid prd.json at $RUN_DIR/prd.json." >&2
   exit 1
 fi
