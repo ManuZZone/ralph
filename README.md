@@ -139,6 +139,19 @@ The `omp` backend runs a fresh non-interactive Oh My Pi session for each iterati
 
 `RALPH_PROJECT_DIR` selects the git repository to modify; it defaults to the launch directory. Unlike the upstream Amp and Claude prompts, `OMP.md` does not create branches or commits and does not automatically edit `AGENTS.md`. `prd.json` is the completion source of truth.
 
+### OMP skills
+
+Copy the OMP-native skills into your project or global OMP skill directory:
+
+```bash
+mkdir -p ~/.omp/agent/skills
+cp -r skills/omp-prd ~/.omp/agent/skills/
+cp -r skills/omp-ralph ~/.omp/agent/skills/
+```
+
+Use `/omp-prd` to create a one-story-per-iteration PRD and `/omp-ralph` to create `prd.json` before launching `ralph.sh --tool omp`.
+
+
 
 
 ## Key Files

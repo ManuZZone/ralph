@@ -100,7 +100,11 @@ run_iteration() {
       claude --dangerously-skip-permissions --print < "$SCRIPT_DIR/CLAUDE.md" 2>&1 | tee /dev/stderr || true
       ;;
     omp)
-      omp --cwd "$PROJECT_DIR" --no-session --approval-mode yolo -p "$(cat "$SCRIPT_DIR/OMP.md")" 2>&1 | tee /dev/stderr || true
+      OMP_PROMPT=$(cat "$SCRIPT_DIR/OMP.md")
+      OMP_PROMPT+=$'\n\n## Runtime paths\n'
+      OMP_PROMPT+="RALPH_PRD_FILE=$PRD_FILE"$'\n'
+      OMP_PROMPT+="RALPH_PROGRESS_FILE=$PROGRESS_FILE"$'\n'
+      omp --cwd "$PROJECT_DIR" --no-session --approval-mode yolo -p "$OMP_PROMPT" 2>&1 | tee /dev/stderr || true
       ;;
   esac
 }
