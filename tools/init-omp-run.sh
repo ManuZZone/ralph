@@ -87,8 +87,8 @@ if ! command -v omp >/dev/null 2>&1; then
 fi
 
 PROJECT_DIR="$(cd "$PROJECT_DIR" && pwd)"
-if [[ ! -d "$PROJECT_DIR/.git" ]]; then
-  echo "Error: --project must point to a git repository." >&2
+if ! git -C "$PROJECT_DIR" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  echo "Error: --project must point to a git repository or worktree." >&2
   exit 1
 fi
 

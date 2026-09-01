@@ -45,12 +45,8 @@ if [[ ! -f "$PRD_FILE" ]]; then
   echo "Error: missing $PRD_FILE"
   exit 1
 fi
-if [[ ! -d "$PROJECT_DIR/.git" ]]; then
-  echo "Error: RALPH_PROJECT_DIR must point to a git repository."
-  exit 1
-fi
-if ! command -v jq >/dev/null 2>&1; then
-  echo "Error: jq is required."
+if ! git -C "$PROJECT_DIR" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  echo "Error: RALPH_PROJECT_DIR must point to a git repository or worktree."
   exit 1
 fi
 if [[ "$TOOL" == "omp" ]] && ! command -v omp >/dev/null 2>&1; then
