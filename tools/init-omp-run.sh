@@ -6,12 +6,13 @@ set -euo pipefail
 PROJECT_DIR=""
 TASK=""
 MAX_ITERATIONS=10
+PLAN_TIMEOUT_SECONDS=180
 DRY_RUN=false
 
 usage() {
   cat <<'EOF'
 Usage:
-  ./tools/init-omp-run.sh --project /path/to/repo --task "what to do" [--iterations N] [--dry-run]
+  ./tools/init-omp-run.sh --project /path/to/repo --task "what to do" [--iterations N] [--plan-timeout seconds] [--dry-run]
 
 Creates an isolated run under runs/ and asks OMP to write its prd.json.
 The target repository is not modified during initialization. Run the printed
@@ -31,6 +32,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --iterations)
       MAX_ITERATIONS="$2"
+      shift 2
+      ;;
+    --plan-timeout)
+      PLAN_TIMEOUT_SECONDS="$2"
       shift 2
       ;;
     --dry-run)
@@ -58,6 +63,11 @@ if [[ ! "$MAX_ITERATIONS" =~ ^[1-9][0-9]*$ ]]; then
   echo "Error: --iterations must be a positive integer." >&2
   exit 1
 fi
+if [[ ! "$PLAN_TIMEOUT_SECONDS" =~ ^[1-9][0-9]*$ ]]; then
+  echo "Error: --plan-timeout must be a positive integer." >&2
+  exit 1
+fi
+
 if ! command -v jq >/dev/null 2>&1; then
   echo "Error: jq is required." >&2
   exit 1
@@ -101,16 +111,16 @@ Create exactly one valid JSON file at $RUN_DIR/prd.json using the Ralph schema:
 - branchName: ralph/<short-kebab-feature-name>
 - description: concise summary of the task request
 - userStories: ordered, small, independently verifiable stories
+- create at most 5 user stories
 - each story has id, title, description, acceptanceCriteria, priority, passes=false, notes=""
 - priority is a JSON integer: 1 for the first story, then 2, 3, and so on. Never use words such as "high".
 
-Break large work into one-story-per-fresh-session units. Include specific verification in each story. Do not create branches, commits, source files, AGENTS.md edits, or any other target-repository changes. Reply only after writing the JSON file.
+Planning budget: inspect at most 12 relevant files or search results. Reuse established page, filtering, download-service, and PDF-plugin patterns. Do not deeply explore unrelated code. Break large work into one-story-per-fresh-session units. Include specific verification in each story. Do not create branches, commits, source files, AGENTS.md edits, or any other target-repository changes. Reply only after writing the JSON file.
 EOF
 )
 
-omp --cwd "$PROJECT_DIR" --no-session --approval-mode yolo -p "$BOOTSTRAP_PROMPT"
-
-if ! jq -e '(.project | type == "string") and (.branchName | type == "string") and (.userStories | type == "array" and length > 0) and all(.userStories[]; (.id | type == "string") and (.priority | type == "number" and floor == . and . > 0) and (.passes == false))' "$RUN_DIR/prd.json" >/dev/null; then
+omp --cwd "$PROJECT_DIR" --no-session --approval-mode yolo --max-time "$PLAN_TIMEOUT_SECONDS" -p "$BOOTSTRAP_PROMPT"
+if ! jq -e '(.project | type == "string") and (.branchName | type == "string") and (.description | type == "string") and (.userStories | type == "array" and length > 0 and length <= 5) and all(.userStories[]; (.id | type == "string") and (.title | type == "string") and (.description | type == "string") and (.acceptanceCriteria | type == "array" and length > 0 and all(.[]; type == "string")) and (.priority | type == "number" and floor == . and . > 0) and (.passes | type == "boolean" and . == false) and (.notes | type == "string"))' "$RUN_DIR/prd.json" >/dev/null; then
   echo "Error: OMP did not create a valid prd.json at $RUN_DIR/prd.json." >&2
   exit 1
 fi
