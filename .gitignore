@@ -3,6 +3,9 @@ prd.json
 progress.txt
 .last-branch
 
+
+# OMP Ralph run directories
+runs/
 # Archive is optional to commit
 # archive/
 

@@ -154,6 +154,20 @@ Use `/omp-prd` to create a one-story-per-iteration PRD and `/omp-ralph` to creat
 
 
 
+### Start an OMP run
+
+Create an isolated Ralph run from a target git repository and a plain-language task request:
+
+```bash
+./tools/init-omp-run.sh \
+  --project /path/to/project \
+  --task "Implement and verify the selected feature" \
+  --iterations 5
+```
+
+Initialization uses OMP only to create `runs/<timestamp>-<task>/prd.json`; it does not edit, branch, or commit the target repository. Review the generated PRD, then run the command printed by the bootstrap script to begin implementation.
+
+
 ## Key Files
 
 | File | Purpose |
